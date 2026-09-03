@@ -78,7 +78,6 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.09em;color:var(--dim)
 .bar{height:7px;background:#0b0d11;border-radius:99px;margin-top:14px;position:relative;overflow:hidden}
 .bar .fill{height:100%;border-radius:99px}
 .bar .mark{position:absolute;top:-4px;width:2px;height:15px;background:var(--warn)}
-.scroll{overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:14px;table-layout:fixed}
 th{text-align:left;color:var(--dim);font-weight:600;font-size:12px;text-transform:uppercase;
   letter-spacing:.06em;padding:0 10px 10px;border-bottom:1px solid var(--line)}
@@ -187,7 +186,7 @@ def _candidates_table(results: list[tuple]) -> str:
     checked = len(results)
     passed = sum(1 for _, m in results if m and m.passed)
     return f"""
-<div class="card scroll">
+<div class="card">
   <table>
     <colgroup><col class="c-th"><col class="c-pl"><col class="c-sc"><col class="c-vd"><col></colgroup>
     <thead><tr><th></th><th>Platform</th><th>Similarity</th><th>Verdict</th><th>Page</th></tr></thead>

@@ -201,7 +201,25 @@ npx hardhat compile
 
 The InsightFace `buffalo_l` model pack (~280 MB) downloads automatically on first run.
 
-### Run it
+### Run the whole demo with one command
+
+```powershell
+.\demo.ps1
+```
+
+`demo.ps1` runs the pipeline end to end in the order it needs to be seen: it
+starts the local chain if it is not already up, deploys the contract, scans two
+faces, re-verifies the evidence against the chain, proves that tampered evidence
+fails, and opens the visual report. It pauses between stages so nothing scrolls
+past unread — built for screen recording.
+
+| flag | effect |
+|---|---|
+| `-Fast` | headless browser, no pauses (quick check rather than a demo) |
+| `-Network sepolia` | anchor on a public testnet instead of the local chain |
+| `-SkipTests` | leave the two test suites out |
+
+### Or run the steps yourself
 
 ```bash
 # terminal 1 — local blockchain, leave running
@@ -209,7 +227,8 @@ npx hardhat node
 
 # terminal 2
 npx hardhat run scripts/deploy.js --network localhost
-python -m pipeline.cli scan samples/virat_kohli.jpg --network localhost
+python -m pipeline.cli scan samples/virat_kohli.jpg --network localhost --open-report
+python -m pipeline.cli scan samples/kl_rahul.jpg --backend both --network localhost
 python -m pipeline.cli verify out/evidence.json --network localhost
 python -m pipeline.cli tamper out/evidence.json --network localhost
 ```
