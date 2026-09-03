@@ -1,23 +1,27 @@
 <#
     FaceProof end-to-end demo.
 
-    Runs the whole pipeline in the order a judge needs to see it:
-      face scan -> live web/social search -> verification -> blockchain anchor
-      -> re-verification -> tamper proof
+      face scan -> live web/social search -> independent verification
+      -> blockchain anchor -> re-verification -> tamper proof
 
-    Built for screen recording: each stage announces itself, and the script
-    pauses between stages so nothing important scrolls past unread.
+    By default it asks which image to scan: pick a bundled sample, browse for
+    a file, or just drag a photo onto this window and press Enter.
 
     Usage
-      .\demo.ps1                    full demo on the local chain
-      .\demo.ps1 -Fast              headless browser, no pauses (quick check)
-      .\demo.ps1 -Network sepolia   anchor on a public testnet instead
-      .\demo.ps1 -SkipTests         leave the test suites out
+      .\demo.ps1                          interactive - choose an image
+      .\demo.ps1 -Image C:\path\me.jpg    scan one specific image
+      .\demo.ps1 -Full                    scripted two-sample showcase
+      .\demo.ps1 -Fast                    headless browser, no pauses
+      .\demo.ps1 -Network sepolia         anchor on a public testnet
 #>
 
 [CmdletBinding()]
 param(
+    [string] $Image,
     [string] $Network = "localhost",
+    [ValidateSet("yandex", "bing", "both", "facecheck")]
+    [string] $Backend = "both",
+    [switch] $Full,        # run the scripted Kohli + KL Rahul showcase
     [switch] $Fast,        # headless browser + no pauses
     [switch] $SkipTests,
     [switch] $NoPause
@@ -46,7 +50,7 @@ function Pause-Step([string]$next) {
     if ($Quiet) { return }
     Write-Host ""
     Write-Host "  Next: $next" -ForegroundColor Yellow
-    Read-Host "  Press Enter to continue"
+    Read-Host "  Press Enter to continue" | Out-Null
 }
 
 function Fail([string]$msg) {
@@ -55,9 +59,97 @@ function Fail([string]$msg) {
     exit 1
 }
 
+# Dragging a file onto a console window types its path, often quoted, and
+# sometimes with a stray trailing space. Normalise all of that away.
+function Clean-Path([string]$raw) {
+    if (-not $raw) { return "" }
+    $p = $raw.Trim()
+    $p = $p.Trim('"').Trim("'").Trim()
+    if ($p.StartsWith("&")) { $p = $p.Substring(1).Trim().Trim("'").Trim('"') }
+    return $p
+}
+
+function Show-FilePicker {
+    try {
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+        $dlg = New-Object System.Windows.Forms.OpenFileDialog
+        $dlg.Title  = "Choose a face photo to scan"
+        $dlg.Filter = "Images (*.jpg;*.jpeg;*.png;*.webp;*.bmp)|*.jpg;*.jpeg;*.png;*.webp;*.bmp|All files (*.*)|*.*"
+        $dlg.InitialDirectory = [Environment]::GetFolderPath("MyPictures")
+        if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { return $dlg.FileName }
+        return ""
+    } catch {
+        Note "file picker unavailable here - type or drag a path instead"
+        return ""
+    }
+}
+
+function Select-InputImage {
+    $samples = @(Get-ChildItem -Path "samples" -Filter *.jpg -ErrorAction SilentlyContinue | Sort-Object Name)
+
+    while ($true) {
+        Write-Host ""
+        Write-Host "  Which face do you want to scan?" -ForegroundColor White
+        Write-Host ""
+        for ($i = 0; $i -lt $samples.Count; $i++) {
+            Write-Host ("    [{0}] {1}" -f ($i + 1), $samples[$i].Name) -ForegroundColor Gray
+        }
+        Write-Host "    [B] Browse for a file..." -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "  Or drag a photo onto this window and press Enter." -ForegroundColor DarkGray
+        Write-Host ""
+
+        $choice = Read-Host "  Choice"
+        $choice = Clean-Path $choice
+
+        if ($choice -eq "") { continue }
+
+        if ($choice -match '^[Bb]$') {
+            $picked = Show-FilePicker
+            if ($picked) { return $picked }
+            continue
+        }
+
+        if ($choice -match '^\d+$') {
+            $idx = [int]$choice - 1
+            if ($idx -ge 0 -and $idx -lt $samples.Count) { return $samples[$idx].FullName }
+            Write-Host "  No sample numbered $choice." -ForegroundColor Yellow
+            continue
+        }
+
+        if (Test-Path -LiteralPath $choice -PathType Leaf) { return (Resolve-Path -LiteralPath $choice).Path }
+
+        Write-Host "  Not a file: $choice" -ForegroundColor Yellow
+    }
+}
+
+# Reject an unusable photo in a second, rather than after minutes of searching.
+function Test-Face([string]$path) {
+    Write-Host ""
+    Note "checking the photo for a detectable face..."
+    $line = & $Python scripts\precheck.py $path 2>&1 | Select-Object -Last 1
+    $line = "$line"
+
+    if ($line -like "OK *") {
+        $bits = $line.Split(" ")
+        Write-Host "  Face found." -ForegroundColor Green
+        Note "faces in image : $($bits[1])"
+        Note "face size      : $($bits[2]) px"
+        Note "confidence     : $($bits[3])"
+        return $true
+    }
+    if ($line -like "NO_FACE*") {
+        Write-Host "  No face detected in that image." -ForegroundColor Yellow
+        Note "Try a photo where the face is larger, front-facing and well lit."
+        return $false
+    }
+    Write-Host "  Could not read that image: $line" -ForegroundColor Yellow
+    return $false
+}
+
 # ---------------------------------------------------------- prerequisites
 
-Banner "0/7" "Checking prerequisites"
+Banner "0" "Checking prerequisites"
 
 if (-not (Test-Path $Python)) {
     Fail "No virtualenv. Run:  python -m venv .venv ; .venv\Scripts\python.exe -m pip install -r requirements.txt"
@@ -75,7 +167,6 @@ if (-not (Test-Path "artifacts\contracts\FaceProofRegistry.sol\FaceProofRegistry
 Note "contract    compiled"
 Note "network     $Network"
 
-# The local chain has to be up before anything can be deployed to it.
 if ($Local) {
     $listening = $null
     try { $listening = Get-NetTCPConnection -LocalPort 8545 -State Listen -ErrorAction SilentlyContinue } catch {}
@@ -96,14 +187,47 @@ if ($Local) {
         Note "chain       up"
     }
 } else {
-    Note "chain       using public network '$Network' (needs a funded PRIVATE_KEY in .env)"
+    Note "chain       public network '$Network' (needs a funded PRIVATE_KEY in .env)"
 }
 
+# ------------------------------------------------------------ pick input
+
+$targets = @()
+
+if ($Full) {
+    $targets = @(
+        @{ Path = "samples\virat_kohli.jpg"; Label = "Virat Kohli (high-volume match)";
+           Backend = "yandex"; Out = "out_kohli"; MaxChecks = "12"; Limit = "60" },
+        @{ Path = "samples\kl_rahul.jpg";    Label = "KL Rahul (watch the rejections)";
+           Backend = "both";   Out = "out";       MaxChecks = "30"; Limit = "80" }
+    )
+} else {
+    if ($Image) {
+        $Image = Clean-Path $Image
+        if (-not (Test-Path -LiteralPath $Image -PathType Leaf)) { Fail "No such image: $Image" }
+        $Image = (Resolve-Path -LiteralPath $Image).Path
+    } else {
+        Banner "1" "Choose an image"
+        while ($true) {
+            $Image = Select-InputImage
+            if (Test-Face $Image) { break }
+            Write-Host ""
+            Note "Pick a different photo."
+        }
+    }
+    $targets = @(
+        @{ Path = $Image; Label = (Split-Path $Image -Leaf);
+           Backend = $Backend; Out = "out"; MaxChecks = "30"; Limit = "80" }
+    )
+}
+
+Write-Host ""
+Note "scanning: $($targets[0].Path)"
 Pause-Step "deploy the FaceProofRegistry contract"
 
 # ---------------------------------------------------------------- deploy
 
-Banner "1/7" "Deploy the evidence registry contract"
+Banner "2" "Deploy the evidence registry contract"
 
 $deployment = "deployments\$Network.json"
 if ((-not $Local) -and (Test-Path $deployment)) {
@@ -114,71 +238,77 @@ if ((-not $Local) -and (Test-Path $deployment)) {
     if (-not $?) { Fail "deployment failed" }
 }
 
-Pause-Step "scan a public figure (Virat Kohli) end to end"
+# ------------------------------------------------------------------ scan
 
-# ------------------------------------------------------------- scan one
+$step = 3
+$lastOut = "out"
 
-Banner "2/7" "Scan 1 - Virat Kohli (high-volume match)"
-Note "Watch the browser window: this is a live query to Yandex, not a canned result."
+foreach ($t in $targets) {
+    Pause-Step "scan $($t.Label)"
+    Banner "$step" "Scan - $($t.Label)"
+    Note "The browser window is a live query to a real search engine, not a canned result."
+    if ($t.Backend -eq "both") {
+        Note "Rejected candidates are shown too: a search engine returning the wrong"
+        Note "person is normal, and catching it is the point of the verification stage."
+    }
 
-# Separate output directory so this run's report survives scan 2.
-$scanArgs = @("-m","pipeline.cli","scan","samples\virat_kohli.jpg",
-              "--backend","yandex","--network",$Network,
-              "--max-checks","12","--out","out_kohli","--open-report")
-if ($Fast) { $scanArgs += "--headless" }
+    $a = @("-m","pipeline.cli","scan",$t.Path,
+           "--backend",$t.Backend,"--network",$Network,
+           "--limit",$t.Limit,"--max-checks",$t.MaxChecks,
+           "--out",$t.Out,"--open-report")
+    if ($Fast) { $a += "--headless" }
 
-& $Python @scanArgs
-if (-not $?) { Note "scan 1 did not find a verifiable match - continuing to scan 2" }
+    & $Python @a
+    $code = $LASTEXITCODE
+    $lastOut = $t.Out
 
-Pause-Step "scan KL Rahul, where the verifier rejects the wrong person"
-
-# ------------------------------------------------------------- scan two
-
-Banner "3/7" "Scan 2 - KL Rahul (watch the rejections)"
-Note "Yandex returns Virat Kohli posts and Bing labels the face 'Rohit Sharma'."
-Note "Both are wrong. Our own model scores them 0.09-0.24 and throws them out,"
-Note "then matches his real account at ~0.5 against a completely different photo."
-
-$scanArgs2 = @("-m","pipeline.cli","scan","samples\kl_rahul.jpg",
-               "--backend","both","--network",$Network,
-               "--limit","80","--max-checks","30","--open-report")
-if ($Fast) { $scanArgs2 += "--headless" }
-
-& $Python @scanArgs2
-if (-not $?) { Fail "scan 2 failed" }
+    if ($code -ne 0) {
+        Write-Host ""
+        Note "No verifiable match for this image (exit $code)."
+        Note "Free engines do image matching, not face recognition, so they find"
+        Note "public figures far more reliably than private individuals."
+        Note "Try:  -Backend both   or a photo already published online."
+        if ($targets.Count -eq 1) {
+            Banner "DONE" "Search ran, nothing cleared the threshold"
+            exit 0
+        }
+    }
+    $step++
+}
 
 Pause-Step "re-verify the saved evidence against the blockchain"
 
 # ---------------------------------------------------------------- verify
 
-Banner "4/7" "Re-verify the evidence against the chain"
+Banner "$step" "Re-verify the evidence against the chain"
 Note "Re-hashes evidence.json from disk and asks the contract if it knows that digest."
-
-& $Python -m pipeline.cli verify out\evidence.json --network $Network
+& $Python -m pipeline.cli verify "$lastOut\evidence.json" --network $Network
 if (-not $?) { Fail "verification failed" }
+$step++
 
 Pause-Step "tamper with the evidence and watch verification break"
 
 # ---------------------------------------------------------------- tamper
 
-Banner "5/7" "Tamper proof - change one character"
+Banner "$step" "Tamper proof - change one character"
 Note "Edits a single character of the post URL and re-hashes. The digest changes"
 Note "completely, and that new digest is not on the chain. The record cannot be faked."
-
-& $Python -m pipeline.cli tamper out\evidence.json --network $Network
+& $Python -m pipeline.cli tamper "$lastOut\evidence.json" --network $Network
+$step++
 
 Pause-Step "show the chain state"
 
 # ------------------------------------------------------------------ info
 
-Banner "6/7" "Chain state"
+Banner "$step" "Chain state"
 & $Python -m pipeline.cli info --network $Network
+$step++
 
 # ----------------------------------------------------------------- tests
 
 if (-not $SkipTests) {
     Pause-Step "run both test suites"
-    Banner "7/7" "Test suites"
+    Banner "$step" "Test suites"
     Note "Contract tests (Hardhat):"
     npx hardhat test
     Write-Host ""
@@ -191,18 +321,20 @@ if (-not $SkipTests) {
 
 Banner "DONE" "Pipeline demonstrated end to end"
 
-$report = Join-Path $PSScriptRoot "out\report.html"
-Write-Host "  Evidence bundle : out\evidence.json"                  -ForegroundColor Green
-Write-Host "  Chain receipt   : out\receipt.json"                   -ForegroundColor Green
-Write-Host "  Visual report   : out\report.html        (KL Rahul)"  -ForegroundColor Green
-Write-Host "  Visual report   : out_kohli\report.html  (Virat Kohli)" -ForegroundColor Green
+$report = Join-Path $PSScriptRoot "$lastOut\report.html"
+Write-Host "  Evidence bundle : $lastOut\evidence.json" -ForegroundColor Green
+Write-Host "  Chain receipt   : $lastOut\receipt.json"  -ForegroundColor Green
+Write-Host "  Visual report   : $lastOut\report.html"   -ForegroundColor Green
+if ($Full) {
+    Write-Host "  Visual report   : out_kohli\report.html  (first scan)" -ForegroundColor Green
+}
 Write-Host ""
 
 if (Test-Path $report) {
     Note "Opening the visual report..."
     Start-Process $report
 } else {
-    Note "No report was generated (no verified match in the last scan)."
+    Note "No report was generated (no verified match)."
 }
 
 Write-Host ""

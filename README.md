@@ -207,15 +207,26 @@ The InsightFace `buffalo_l` model pack (~280 MB) downloads automatically on firs
 .\demo.ps1
 ```
 
-`demo.ps1` runs the pipeline end to end in the order it needs to be seen: it
-starts the local chain if it is not already up, deploys the contract, scans two
-faces, re-verifies the evidence against the chain, proves that tampered evidence
-fails, and opens the visual report. It pauses between stages so nothing scrolls
-past unread — built for screen recording.
+It asks which face to scan. Pick a bundled sample by number, press **B** for a
+file browser, or **drag a photo straight onto the console window** and press
+Enter — quoted and unquoted paths both work.
+
+The photo is checked for a detectable face immediately, before anything slow
+happens, so a bad input is rejected in a second rather than after several
+minutes of searching.
+
+From there it runs the pipeline end to end: starts the local chain if it is not
+already up, deploys the contract, scans, re-verifies the evidence against the
+chain, proves that tampered evidence fails, and opens the visual report. It
+pauses between stages so nothing scrolls past unread — built for screen
+recording.
 
 | flag | effect |
 |---|---|
-| `-Fast` | headless browser, no pauses (quick check rather than a demo) |
+| `-Image C:\path\photo.jpg` | skip the prompt and scan this file |
+| `-Full` | scripted two-sample showcase (Kohli, then KL Rahul) |
+| `-Backend yandex\|bing\|both` | which engine to query (default `both`) |
+| `-Fast` | headless browser, no pauses — a quick check rather than a demo |
 | `-Network sepolia` | anchor on a public testnet instead of the local chain |
 | `-SkipTests` | leave the two test suites out |
 
