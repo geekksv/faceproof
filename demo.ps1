@@ -34,6 +34,11 @@ $Python = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
 $Local  = ($Network -eq "localhost")
 $Quiet  = ($Fast -or $NoPause)
 
+# Hardhat asks for telemetry consent on first use. That prompt blocks waiting
+# for a keypress in the middle of the demo -- fine interactively, fatal to an
+# unattended run and ugly in a screen recording.
+$env:HARDHAT_DISABLE_TELEMETRY_PROMPT = "true"
+
 # ---------------------------------------------------------------- helpers
 
 function Banner([string]$n, [string]$title) {
@@ -57,6 +62,14 @@ function Fail([string]$msg) {
     Write-Host ""
     Write-Host "  FAILED: $msg" -ForegroundColor Red
     exit 1
+}
+
+# Node on Windows prints a libuv assertion as it tears down after Hardhat
+# exits. It happens after the tests have already reported, changes no result,
+# and there is nothing in this project to fix -- but it looks like a crash on
+# screen, so keep it out of the transcript.
+function Invoke-Quietly([scriptblock]$cmd) {
+    & $cmd 2>&1 | Where-Object { $_ -notmatch 'UV_HANDLE_CLOSING|src\\win\\async\.c' }
 }
 
 # Dragging a file onto a console window types its path, often quoted, and
@@ -310,7 +323,7 @@ if (-not $SkipTests) {
     Pause-Step "run both test suites"
     Banner "$step" "Test suites"
     Note "Contract tests (Hardhat):"
-    npx hardhat test
+    Invoke-Quietly { npx hardhat test }
     Write-Host ""
     Note "Pipeline tests (pytest) - includes the negative control proving that"
     Note "unrelated faces score near zero, which is what makes a match meaningful:"
