@@ -152,3 +152,83 @@ def test_dedupe_keeps_best_ranked_sighting():
     out = dedupe(c)
     assert len(out) == 2
     assert out[0].engine_rank == 1
+
+
+# ------------------------------------------------------- inline image bytes
+
+
+def test_candidate_reports_inline_image():
+    """FaceCheck hands back thumbnails inline; verification uses them directly
+    instead of re-fetching from a host that may block scripts."""
+    with_bytes = Candidate(page_url="https://x.com/a", image_bytes=b"\xff\xd8\xff")
+    without = Candidate(page_url="https://x.com/b")
+    assert with_bytes.to_dict()["image_inline"] is True
+    assert without.to_dict()["image_inline"] is False
+
+
+def test_verify_prefers_inline_bytes_over_network(kohli):
+    """A candidate carrying real image bytes must verify without any network
+    access -- this is what makes scrape-blocked platforms checkable."""
+    from pipeline.verify import verify_candidate
+
+    c = Candidate(
+        page_url="https://example.com/post",
+        engine="test",
+        image_bytes=KOHLI.read_bytes(),
+    )
+    m = verify_candidate(c, kohli.embedding)
+    assert m is not None
+    assert m.passed
+    assert m.similarity > 0.9
+
+
+def test_verify_rejects_a_different_person_even_when_handed_the_bytes(kohli):
+    """The threshold is enforced regardless of what the engine claims."""
+    from pipeline.verify import verify_candidate
+
+    c = Candidate(page_url="https://example.com/p", engine="test",
+                  image_bytes=DHONI.read_bytes())
+    m = verify_candidate(c, kohli.embedding)
+    assert m is not None
+    assert not m.passed
+    assert m.similarity < 0.30
+
+
+# ------------------------------------------------------------ backends
+
+
+def test_facecheck_refuses_to_run_without_a_token(monkeypatch):
+    """A paid backend must fail loudly, not silently return nothing."""
+    from pipeline.search.facecheck import FaceCheckBackend, FaceCheckError
+
+    monkeypatch.delenv("FACECHECK_API_TOKEN", raising=False)
+    with pytest.raises(FaceCheckError, match="token"):
+        FaceCheckBackend()
+
+
+def test_unknown_backend_names_the_valid_options():
+    from pipeline.search import get_backend
+
+    with pytest.raises(ValueError, match="yandex"):
+        get_backend("nope")
+
+
+def test_evidence_records_every_query_put_to_the_engine():
+    """An auditor must be able to see whether we searched the crop, the full
+    photo, or both -- so the queries list is part of the hashed evidence."""
+    from pipeline.evidence import build_bundle
+
+    queries = [
+        {"kind": "full_image", "url": "https://h/2.jpg"},
+        {"kind": "face_crop", "url": "https://h/1.jpg"},
+    ]
+    b = build_bundle(
+        query_image_path="a.jpg", query_image_sha256="ab", face_bbox=(0, 0, 1, 1),
+        face_det_score=0.9, face_crop_sha256="cd", hosted_crop_url="https://h/1.jpg",
+        engine="yandex", queries=queries, candidates_seen=10, social_candidates=3,
+        match={"page_url": "https://x.com/a", "matched_image_url": "https://i/1.jpg",
+               "image_sha256": "ef", "similarity": 0.99, "platform": "X (Twitter)"},
+        threshold=0.45,
+    )
+    kinds = [q["kind"] for q in b["search"]["queries"]]
+    assert kinds == ["face_crop", "full_image"], "queries must be canonically ordered"

@@ -5,10 +5,11 @@ real reverse-image search, verifies the match with its own face-recognition mode
 and anchors the finding on a blockchain as a tamper-evident record.
 
 ```
-  face scan  ──▶  reverse image search  ──▶  independent  ──▶  evidence  ──▶  on-chain
-  (InsightFace)   (Yandex CBIR / Bing)       verification      bundle         anchor
-   detect +        real live query,           our own          canonical      keccak256
-   512-d ArcFace   no hardcoded results       ArcFace re-check  JSON          in a contract
+  face scan  ──▶  web / social search  ──▶  independent  ──▶  evidence  ──▶  on-chain
+  (InsightFace)   (Yandex, Bing,            verification      bundle         anchor
+   detect +        FaceCheck.ID)             our own          canonical      keccak256
+   512-d ArcFace   real live query,          ArcFace re-check  JSON          in a contract
+                   no hardcoded results
 ```
 
 Built for **HH Goa 2026 Shortlisting Task 3**.
@@ -27,9 +28,11 @@ and the pipeline:
 
 1. **Scans the face** — SCRFD detects every face in the input, picks the largest,
    and encodes it as a 512-dimension ArcFace embedding. Runs locally on CPU.
-2. **Searches the live web** — publishes the face crop to a temporary URL, then
-   queries Yandex's reverse-image (CBIR) index for pages containing that face.
-   This is a genuine network call to a live engine; results differ run to run.
+2. **Searches the live web** — publishes both the face crop *and* the full photo
+   to temporary URLs, then queries Yandex's reverse-image (CBIR) index with each.
+   Two queries because they fail in opposite cases: the crop finds the same face
+   in other pictures, the full photo finds that exact picture reposted elsewhere.
+   Genuine network calls to a live engine; results differ run to run.
 3. **Verifies the match itself** — downloads the image from each candidate post,
    re-runs its *own* detector and embedder over it, and computes cosine similarity
    against the query face. Anything below the threshold is discarded no matter how
@@ -50,6 +53,14 @@ recomputes the digest from the file on disk and checks it against the chain.
 ### Real output
 
 ```
+Step 2/5 · Web & social media search
+  OK  published 2 query image(s) so the engine can fetch them
+      face_crop     https://files.catbox.moe/m24rp0.jpg
+      full_image    https://files.catbox.moe/4qihcr.jpg
+      face_crop     returned 35 pages
+      full_image    returned 58 pages
+  OK  65 unique pages found, 19 on social platforms
+
 Step 3/5 · Independent face verification
       re-checking each hit with our own embedder — the engine's ranking is not trusted
       PASS sim=+0.8199  Pinterest   https://www.pinterest.com/pin/1101271533748...
@@ -202,7 +213,8 @@ Useful flags on `scan`:
 
 | flag | effect |
 |---|---|
-| `--backend yandex\|bing\|both` | which engine to query (default `yandex`) |
+| `--backend yandex\|bing\|both\|facecheck` | which engine to query (default `yandex`) |
+| `--crop-only` | search only the face crop, skipping the full-photo query |
 | `--threshold 0.45` | minimum cosine similarity to accept a match |
 | `--any-domain` | verify every result page, not just social platforms |
 | `--image-url URL` | search an already-public image; uploads nothing |
@@ -229,12 +241,59 @@ this project, and would be flaky by construction.
 
 ---
 
+## Image search vs face search — the limitation that matters most
+
+These are two different technologies, and confusing them is the biggest trap in
+this problem space:
+
+| | The question it answers |
+|---|---|
+| **Reverse image search** (Yandex, Bing) | "Have I seen this **image** before?" |
+| **Face search** (FaceCheck.ID, PimEyes) | "Have I seen this **face** before?" |
+
+Yandex indexes *pictures* and finds visually similar pictures. It is not doing
+face recognition. FaceCheck crawled social media, ran face detection on every
+photo, and searches that index *by face*.
+
+The practical consequence:
+
+- **Public figures work well on the free engines.** Their photos are reposted
+  thousands of times, so a duplicate exists for Yandex to find. The bundled
+  demo returns 19 social candidates and 11 verified matches.
+- **Private individuals often return nothing.** Their photos usually exist in
+  exactly one place — their own profile — with no reposted copy to match. The
+  face is sitting on a page Yandex has crawled, but Yandex was never asked to
+  recognise faces. A true face-search engine finds them immediately.
+
+This was confirmed by testing: a colleague's photo returned nothing on Yandex
+and was found by FaceCheck.ID.
+
+**There is no free face-search API that returns source URLs.** Every such service
+gives away the match and sells the URL — FaceCheck.ID and Face Search AI both
+return blurred previews with the destination hidden on their free tiers, and
+paid access starts at $6 (crypto-only) and $50/month respectively.
+
+Two things follow, and both are implemented:
+
+1. **Every scan searches the full photo as well as the face crop.** A private
+   person is far more likely to be found by the exact image than by their
+   cropped face. On the bundled sample this lifted social candidates from 12 to
+   19. Disable with `--crop-only`.
+2. **`--backend facecheck` is implemented and ready.** It needs
+   `FACECHECK_API_TOKEN` in `.env`; without one it fails with a clear message
+   rather than silently finding nothing. When a token is present the pipeline
+   works on any face, not just well-photographed ones.
+
+The task permits "reverse image search, an API, or a scripted search approach",
+so the free path satisfies the requirement — but the limitation is real and worth
+stating plainly rather than hiding behind a celebrity demo.
+
 ## How the search works, and why it is built this way
 
 Reverse **face** search has no free API. FaceCheck.ID has the cleanest one but
-charges ~$0.30 per search, and its free `demo` mode scans only 100 000 faces and
-returns meaningless results. PimEyes has no API at all. So this project drives the
-free engines directly:
+charges ~$0.50 per search, and its free `demo` mode scans only 100 000 faces and
+returns results its own docs call not meaningful. PimEyes has no API at all. So
+this project drives the free engines directly:
 
 - **Yandex** (primary) — the strongest freely scriptable engine for faces. Its
   browser upload widget silently drops scripted `set_input_files` calls, but the
@@ -276,9 +335,13 @@ This is face-search tooling, and it is worth being blunt about what that means.
   the same image can return different posts. This is inherent to searching the
   live web, and it is why evidence is anchored per-run rather than treated as a
   stable identifier.
+- **The free engines find celebrities, not strangers.** See the section above --
+  this is the single biggest limitation, and it is inherent to reverse *image*
+  search rather than a bug. `--backend facecheck` removes it, for a fee.
 - **Instagram, Facebook and X block scraping.** They appear in results, but their
   images usually cannot be downloaded, so they rarely survive verification.
-  YouTube, Pinterest and Reddit serve images openly and verify reliably.
+  YouTube, Pinterest and Reddit serve images openly and verify reliably. Engines
+  that return thumbnails inline (FaceCheck) sidestep this entirely.
 - **Yandex can serve a CAPTCHA** from datacenter or heavily-used IPs. Re-run
   without `--headless` and solve it in the visible window, or use `--backend bing`.
 - **One face per scan.** The largest detected face is used; group photos need the
@@ -303,8 +366,9 @@ pipeline/
   imagehost.py       publish a crop so search engines can fetch it
   search/
     base.py          Candidate type, social-domain classification
-    yandex.py        reverse-image search (primary)
-    bing.py          visual search + entity resolution (fallback)
+    yandex.py        reverse-image search (primary, free)
+    bing.py          visual search + entity resolution (fallback, free)
+    facecheck.py     true face-recognition search (paid, needs a token)
     _browser.py      shared Playwright setup
   verify.py          independent re-verification of every candidate
   evidence.py        canonical JSON + keccak256 hashing

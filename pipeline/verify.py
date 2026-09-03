@@ -117,14 +117,19 @@ def verify_candidate(
     Returns None when nothing usable could be fetched or no face was found --
     which is a normal outcome for a lot of search hits.
     """
-    sources = [u for u in (candidate.image_url,) if u]
     fetched: tuple[str, bytes] | None = None
 
-    for url in sources:
-        data = _fetch(url, referer=candidate.page_url)
-        if data:
-            fetched = (url, data)
-            break
+    # An engine that handed back the thumbnail inline saves us a round trip,
+    # and works on hosts that refuse to serve images to scripts.
+    if candidate.image_bytes:
+        fetched = (candidate.image_url or f"{candidate.engine}:inline", candidate.image_bytes)
+
+    if fetched is None:
+        for url in (u for u in (candidate.image_url,) if u):
+            data = _fetch(url, referer=candidate.page_url)
+            if data:
+                fetched = (url, data)
+                break
 
     if fetched is None:
         og = _og_image(candidate.page_url)

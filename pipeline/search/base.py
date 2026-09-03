@@ -60,6 +60,11 @@ class Candidate:
     engine_rank: int = 0
     engine_score: float | None = None  # only some engines report one
 
+    # Some engines hand back the matched thumbnail inline rather than a URL.
+    # Keeping the bytes means verification still works when the host page
+    # blocks scraping -- which is the norm on Instagram and X.
+    image_bytes: bytes | None = field(default=None, repr=False)
+
     @property
     def platform(self) -> str | None:
         return classify_domain(self.page_url)[0]
@@ -82,6 +87,7 @@ class Candidate:
             "engine_score": self.engine_score,
             "platform": self.platform,
             "host": self.host,
+            "image_inline": self.image_bytes is not None,
         }
 
 

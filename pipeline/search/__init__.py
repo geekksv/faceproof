@@ -1,14 +1,26 @@
 """Face -> web search backends.
 
-Two engines, both free and both genuinely queried at run time:
+Three engines, all genuinely queried at run time. Two are free; the third
+is a paid true-face-recognition service.
 
-  yandex  Reverse *image* search (CBIR). Returns pages that contain a
-          visually matching image. The primary backend -- best face recall.
-  bing    Visual search. Resolves the face to a named entity and returns
-          pages about that person. Broader, less precise; a good fallback
-          and a useful cross-check when Yandex is rate-limited.
+  yandex     Reverse *image* search (CBIR). Finds pages containing a
+             visually matching image. Free. The default.
+  bing       Visual search. Resolves the face to a named entity and returns
+             pages about that person. Free. Broader, less precise.
+  facecheck  True face search: finds a person even in photos that appear
+             nowhere else. Paid (~$0.50/search), requires an API token.
 
-Neither engine's verdict is trusted. Everything they return is re-checked
+The distinction between the first two and the third matters. Yandex and Bing
+answer "have I seen this IMAGE before?", so they find a private individual
+only if one of their photos has been reposted somewhere. FaceCheck answers
+"have I seen this FACE before?" against a face-indexed crawl of social media,
+so it finds people whose photos exist in exactly one place.
+
+In practice: the free engines handle public figures well and ordinary people
+poorly. There is no free face-search API that returns source URLs -- every
+such service gives away the match and sells the URL.
+
+No engine's verdict is trusted. Everything any of them returns is re-checked
 against our own ArcFace embeddings in `pipeline.verify`.
 """
 
@@ -24,7 +36,7 @@ __all__ = [
     "BACKENDS",
 ]
 
-BACKENDS = ("yandex", "bing", "both")
+BACKENDS = ("yandex", "bing", "both", "facecheck")
 
 
 def get_backend(name: str, **kw):
@@ -42,6 +54,11 @@ def get_backend(name: str, **kw):
         from .bing import BingBackend
 
         return BingBackend(**kw)
+    if name == "facecheck":
+        from .facecheck import FaceCheckBackend
+
+        # The browser backends take `headless`; FaceCheck is pure HTTP.
+        return FaceCheckBackend(**{k: v for k, v in kw.items() if k != "headless"})
     if name == "both":
         return MultiBackend(**kw)
     raise ValueError(f"unknown backend {name!r}; choose from {', '.join(BACKENDS)}")

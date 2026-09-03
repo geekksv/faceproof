@@ -49,7 +49,7 @@ def build_bundle(
     face_crop_sha256: str,
     hosted_crop_url: str | None,
     engine: str,
-    engine_query_url: str | None,
+    queries: list[dict],
     candidates_seen: int,
     social_candidates: int,
     match: dict,
@@ -76,7 +76,9 @@ def build_bundle(
         },
         "search": {
             "engine": engine,
-            "query_url": engine_query_url,
+            # Every distinct query put to the engine, so an auditor can see
+            # exactly what was asked -- the face crop, the full photo, or both.
+            "queries": sorted(queries, key=lambda q: (q.get("kind", ""), q.get("url", ""))),
             "candidates_seen": candidates_seen,
             "social_candidates": social_candidates,
         },

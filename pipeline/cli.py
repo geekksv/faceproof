@@ -51,7 +51,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
     from .evidence import build_bundle, evidence_hash, similarity_to_bps, write_bundle
     from .face import FaceEncoder, NoFaceFound, sha256_file
     from .imagehost import publish
-    from .search import get_backend
+    from .search import dedupe as search_dedupe, get_backend
     from .verify import verify_all
 
     image = Path(args.image)
@@ -93,37 +93,60 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
     # -- 2. web / social search ----------------------------------------
     _step(2, total, "Web & social media search")
-    if args.image_url:
-        hosted_url = args.image_url
-        _ok(f"using the public image URL you supplied (nothing uploaded)")
-    else:
-        try:
-            hosted = publish(crop_path)
-        except Exception as e:
-            _fail(f"could not publish the crop for search: {e}")
-            return 3
-        hosted_url = hosted.url
-        _ok(f"face crop published to {hosted.host} so the engine can fetch it")
-    _info(hosted_url)
 
-    backend = get_backend(args.backend, headless=args.headless)
-    console.print(f"      [dim]querying {args.backend}…[/dim]")
     try:
-        candidates = backend.search_by_url(hosted_url, limit=args.limit)
+        backend = get_backend(args.backend, headless=args.headless)
     except Exception as e:
-        _fail(f"{type(e).__name__}: {e}")
+        _fail(str(e))
         return 3
 
+    # Two different questions, and they fail in opposite cases:
+    #   the face crop  -> best for finding the same FACE in other photos
+    #   the full photo -> best for finding the exact IMAGE reposted elsewhere
+    # A private individual is usually only findable by the second, because
+    # nothing of theirs has been cropped and reposted. Searching both roughly
+    # doubles recall on ordinary people at the cost of one extra query.
+    queries: list[dict] = []
+    if args.image_url:
+        queries.append({"kind": "supplied_url", "url": args.image_url})
+        _ok("using the public image URL you supplied (nothing uploaded)")
+    else:
+        try:
+            queries.append({"kind": "face_crop", "url": publish(crop_path).url})
+            if not args.crop_only:
+                queries.append({"kind": "full_image", "url": publish(image).url})
+        except Exception as e:
+            _fail(f"could not publish the image for search: {e}")
+            return 3
+        _ok(f"published {len(queries)} query image(s) so the engine can fetch them")
+
+    for q in queries:
+        _info(f"{q['kind']:<13} {q['url']}")
+
+    candidates = []
+    errors = []
+    for q in queries:
+        console.print(f"      [dim]querying {args.backend} with the {q['kind']}…[/dim]")
+        try:
+            found = backend.search_by_url(q["url"], limit=args.limit)
+        except Exception as e:
+            errors.append(f"{q['kind']}: {type(e).__name__}: {e}")
+            _info(f"[yellow]{q['kind']} query failed: {type(e).__name__}[/yellow]")
+            continue
+        _info(f"{q['kind']:<13} returned {len(found)} pages")
+        candidates.extend(found)
+
+    if not candidates:
+        _fail("the search returned nothing.\n      " + "\n      ".join(errors))
+        return 3
+
+    candidates = search_dedupe(candidates)
     social = [c for c in candidates if c.is_social]
-    _ok(f"{len(candidates)} pages returned, {len(social)} on social platforms")
+    _ok(f"{len(candidates)} unique pages found, {len(social)} on social platforms")
     if getattr(backend, "entity_name", None):
         _info(f"engine identified the face as: {backend.entity_name}")
     for c in social[:8]:
         _info(f"[{c.engine_rank:>2}] {c.platform:<11} {c.page_url[:70]}")
-
-    if not candidates:
-        _fail("the search returned nothing; try --backend both")
-        return 3
 
     # -- 3. independent verification -----------------------------------
     _step(3, total, "Independent face verification")
@@ -179,9 +202,9 @@ def cmd_scan(args: argparse.Namespace) -> int:
         face_bbox=face.bbox,
         face_det_score=face.det_score,
         face_crop_sha256=crop_sha,
-        hosted_crop_url=hosted_url,
+        hosted_crop_url=queries[0]["url"],
         engine=getattr(backend, "name", args.backend),
-        engine_query_url=hosted_url,
+        queries=queries,
         candidates_seen=len(candidates),
         social_candidates=len(social),
         match=best.to_dict(),
@@ -415,7 +438,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("scan", help="run the full pipeline on an image")
     s.add_argument("image", help="path to the input face image")
-    s.add_argument("--backend", default="yandex", choices=["yandex", "bing", "both"])
+    s.add_argument("--backend", default="yandex",
+                   choices=["yandex", "bing", "both", "facecheck"],
+                   help="yandex/bing/both are free image search; facecheck is "
+                        "paid true face search and needs FACECHECK_API_TOKEN")
     s.add_argument("--network", default="localhost")
     s.add_argument("--out", default="out", help="output directory")
     s.add_argument("--threshold", type=float, default=0.45,
@@ -426,7 +452,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--any-domain", action="store_true",
                    help="verify all result pages, not just social platforms")
     s.add_argument("--image-url",
-                   help="use this already-public image URL instead of uploading a crop")
+                   help="use this already-public image URL instead of uploading anything")
+    s.add_argument("--crop-only", action="store_true",
+                   help="search only the face crop, not the full photo (faster, "
+                        "but much worse recall on non-celebrities)")
     s.add_argument("--no-chain", action="store_true", help="stop before anchoring")
     s.add_argument("--headless", action="store_true", default=None,
                    help="run the browser headless (default: visible)")
