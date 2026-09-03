@@ -1,9 +1,9 @@
 {
   "network": "localhost",
   "contract_address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-  "tx_hash": "0x2c50fadcfb293f82f42712c56886e76c14796735f5612296223e072b7603808c",
-  "block_number": 6,
-  "gas_used": 168473,
-  "evidence_hash": "0x99f8e94e78a3118b662f5126b36d5c193670ddcb7a8f14bc13d1ac5346de60c1",
+  "tx_hash": "0xa92b9744ad2d395ea63f289ffd965880353d18c0a0d1026e930296decbe40956",
+  "block_number": 7,
+  "gas_used": 190790,
+  "evidence_hash": "0x87a5d8abd907a6b0844fcdb46421b372ab96d5322846305439faaf82f0f3270a",
   "explorer_url": null
 }

@@ -12,8 +12,10 @@ cache/
 # secrets -- never commit a private key
 .env
 
-# pipeline output (evidence, receipts, downloaded match images, screenshots)
+# pipeline output (evidence, receipts, reports, downloaded match images, screenshots)
+# any --out directory, not just the default
 out/
+out_*/
 
 # deployments: localhost is machine-specific noise; testnet records are
 # meaningful evidence and are committed deliberately.

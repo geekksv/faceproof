@@ -293,3 +293,74 @@ def test_closeup_of_one_person_still_rejects_another(tmp_path):
     dhoni_closeup = _fill_frame_crop(DHONI, tmp_path)
     other = FaceEncoder.primary_face(dhoni_closeup)
     assert cosine_similarity(kohli_face.embedding, other.embedding) < 0.30
+
+
+# ------------------------------------------------------------- report
+
+
+def test_report_renders_a_self_contained_file(tmp_path, kohli):
+    """The report must open with no server and no network: every image inlined."""
+    from pipeline.report import build_report
+    from pipeline.verify import verify_candidate
+
+    c = Candidate(page_url="https://x.com/someone", engine="test",
+                  image_bytes=KOHLI.read_bytes(), title="t")
+    m = verify_candidate(c, kohli.embedding)
+    crop = FaceEncoder.crop(KOHLI, kohli, tmp_path / "crop.jpg")
+
+    bundle = {
+        "face_scan": {"image_sha256": "ab" * 32,
+                      "model": "insightface/buffalo_l"},
+        "match": {"post_url": c.page_url},
+    }
+    out = build_report(
+        out_path=tmp_path / "r.html", image_path=KOHLI, crop_path=crop, face=kohli,
+        queries=[{"kind": "face_crop", "url": "https://h/1.jpg"}], engine="yandex",
+        results=[(c, m)], best=m, threshold=0.45, bundle=bundle,
+        evidence_hash="0x" + "cd" * 32,
+        receipt={"network": "localhost", "contract_address": "0xabc",
+                 "tx_hash": "0xdef", "block_number": 3, "gas_used": 1000,
+                 "explorer_url": None},
+        candidates_seen=10, social_candidates=2,
+    )
+    text = out.read_text(encoding="utf-8")
+    assert text.startswith("<!doctype html>")
+    assert "MATCH VERIFIED" in text
+    assert "data:image/jpeg;base64," in text
+    # No external assets: nothing may be fetched when the file is opened.
+    for attr in ('src="http', 'href="http://cdn', "<script"):
+        assert attr not in text, f"report must not reference {attr}"
+
+
+def test_report_handles_a_run_with_no_match(tmp_path, kohli):
+    """A failed scan still deserves a readable report."""
+    from pipeline.report import build_report
+
+    crop = FaceEncoder.crop(KOHLI, kohli, tmp_path / "crop.jpg")
+    out = build_report(
+        out_path=tmp_path / "r.html", image_path=KOHLI, crop_path=crop, face=kohli,
+        queries=[], engine="yandex", results=[], best=None, threshold=0.45,
+        bundle={"face_scan": {"image_sha256": "ab", "model": "m"}, "match": {}},
+        evidence_hash="0x00", receipt=None, candidates_seen=0, social_candidates=0,
+    )
+    text = out.read_text(encoding="utf-8")
+    assert "NO MATCH" in text
+    assert "--no-chain" in text
+
+
+def test_report_escapes_untrusted_page_titles(tmp_path, kohli):
+    """Titles and URLs come from search engines; they must not inject markup."""
+    from pipeline.report import build_report
+
+    evil = 'https://x.com/a"><script>alert(1)</script>'
+    c = Candidate(page_url=evil, engine="test", title="<img onerror=alert(1)>")
+    crop = FaceEncoder.crop(KOHLI, kohli, tmp_path / "crop.jpg")
+    out = build_report(
+        out_path=tmp_path / "r.html", image_path=KOHLI, crop_path=crop, face=kohli,
+        queries=[], engine="yandex", results=[(c, None)], best=None, threshold=0.45,
+        bundle={"face_scan": {"image_sha256": "ab", "model": "m"}, "match": {}},
+        evidence_hash="0x00", receipt=None, candidates_seen=1, social_candidates=1,
+    )
+    text = out.read_text(encoding="utf-8")
+    assert "<script>alert(1)</script>" not in text
+    assert "&lt;script&gt;" in text or "&quot;" in text

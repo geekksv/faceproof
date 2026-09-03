@@ -51,6 +51,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
     from .evidence import build_bundle, evidence_hash, similarity_to_bps, write_bundle
     from .face import FaceEncoder, NoFaceFound, sha256_file
     from .imagehost import publish
+    from .report import build_report
     from .search import dedupe as search_dedupe, get_backend
     from .verify import verify_all
 
@@ -155,7 +156,10 @@ def cmd_scan(args: argparse.Namespace) -> int:
         "ranking is not trusted[/dim]"
     )
 
+    checked: list[tuple] = []
+
     def on_result(c, m):
+        checked.append((c, m))
         if m is None:
             _info(f"  ·    no usable face   {c.platform or c.host:<11} {c.page_url[:52]}")
         else:
@@ -215,7 +219,42 @@ def cmd_scan(args: argparse.Namespace) -> int:
     _ok(f"canonical bundle written to {bundle_path}")
     _info(f"keccak256 = {ehash}")
 
+    def emit_report(receipt_dict):
+        """Write the visual report.
+
+        Never let a rendering problem sink a run that already succeeded -- the
+        evidence bundle and the on-chain anchor are the product, the report is
+        a presentation of them.
+        """
+        if args.no_report:
+            return
+        try:
+            path = build_report(
+                out_path=outdir / "report.html",
+                image_path=image,
+                crop_path=crop_path,
+                face=face,
+                queries=queries,
+                engine=getattr(backend, "name", args.backend),
+                results=checked,
+                best=best,
+                threshold=args.threshold,
+                bundle=bundle,
+                evidence_hash=ehash,
+                receipt=receipt_dict,
+                candidates_seen=len(candidates),
+                social_candidates=len(social),
+            )
+            _ok(f"visual report written to {path}")
+            if args.open_report:
+                import webbrowser
+
+                webbrowser.open(path.resolve().as_uri())
+        except Exception as e:
+            _info(f"[yellow]could not render report: {type(e).__name__}: {e}[/yellow]")
+
     if args.no_chain:
+        emit_report(None)
         console.print("\n[yellow]--no-chain set: skipping the anchor step.[/yellow]")
         return 0
 
@@ -251,6 +290,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
         json.dumps(receipt.to_dict(), indent=2), encoding="utf-8"
     )
     _ok(f"receipt written to {outdir / 'receipt.json'}")
+    emit_report(receipt.to_dict())
 
     console.print(
         Panel.fit(
@@ -457,6 +497,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="search only the face crop, not the full photo (faster, "
                         "but much worse recall on non-celebrities)")
     s.add_argument("--no-chain", action="store_true", help="stop before anchoring")
+    s.add_argument("--no-report", action="store_true",
+                   help="skip generating out/report.html")
+    s.add_argument("--open-report", action="store_true",
+                   help="open the HTML report in your browser when the scan finishes")
     s.add_argument("--headless", action="store_true", default=None,
                    help="run the browser headless (default: visible)")
     s.set_defaults(func=cmd_scan)

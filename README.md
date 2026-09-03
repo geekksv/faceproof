@@ -50,6 +50,20 @@ python -m pipeline.cli verify out/evidence.json --network localhost
 
 recomputes the digest from the file on disk and checks it against the chain.
 
+### The evidence report
+
+Every scan also writes **`out/report.html`** — a single self-contained file with no
+server and no external assets. It puts the scanned face and the matched image side
+by side at full size, and lists *every* candidate that was checked with its
+similarity score and verdict, rejections included.
+
+That last part matters more than it sounds. On the KL Rahul sample the report shows
+Virat Kohli photographs sitting in the results table scored 0.09–0.24 and marked
+`rejected` — you can see the pipeline refusing the wrong person, rather than being
+asked to take its word for the one it accepted.
+
+Add `--open-report` to have it open in your browser automatically.
+
 ### Real output
 
 ```
@@ -232,6 +246,8 @@ Useful flags on `scan`:
 | `--any-domain` | verify every result page, not just social platforms |
 | `--image-url URL` | search an already-public image; uploads nothing |
 | `--no-chain` | run the search half only |
+| `--open-report` | open the HTML evidence report when the scan finishes |
+| `--no-report` | skip generating the report |
 | `--headless` | hide the browser window |
 | `--network` | `localhost`, `sepolia`, `amoy`, `baseSepolia` |
 
@@ -391,6 +407,7 @@ pipeline/
   verify.py          independent re-verification of every candidate
   evidence.py        canonical JSON + keccak256 hashing
   chain.py           web3 client: anchor and read back
+  report.py          self-contained HTML evidence report
   cli.py             the four commands
 contracts/
   FaceProofRegistry.sol
