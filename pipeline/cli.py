@@ -367,7 +367,9 @@ def cmd_info(args: argparse.Namespace) -> int:
     from .chain import ChainClient, ChainError
 
     try:
-        client = ChainClient(args.network)
+        # Tolerate a missing deployment: this command is how you check whether
+        # a faucet has funded you, which necessarily happens before deploying.
+        client = ChainClient(args.network, require_deployment=False)
     except ChainError as e:
         _fail(str(e))
         return 5
@@ -377,12 +379,23 @@ def cmd_info(args: argparse.Namespace) -> int:
     t.add_row("[dim]rpc[/dim]", client.rpc_url)
     t.add_row("[dim]chain id[/dim]", str(client.w3.eth.chain_id))
     t.add_row("[dim]block[/dim]", str(client.w3.eth.block_number))
-    t.add_row("[dim]contract[/dim]", client.address)
-    t.add_row("[dim]proofs anchored[/dim]", str(client.total()))
+
+    if client.address:
+        t.add_row("[dim]contract[/dim]", client.address)
+        t.add_row("[dim]proofs anchored[/dim]", str(client.total()))
+    else:
+        t.add_row("[dim]contract[/dim]", "[yellow]not deployed on this network yet[/yellow]")
+
     if client.account:
-        bal = client.w3.eth.get_balance(client.account.address)
+        bal = client.signer_balance_eth()
         t.add_row("[dim]signer[/dim]", client.account.address)
-        t.add_row("[dim]balance[/dim]", f"{client.w3.from_wei(bal, 'ether')} ETH")
+        colour = "green" if bal > 0 else "red"
+        t.add_row("[dim]balance[/dim]", f"[{colour}]{bal} ETH[/{colour}]")
+        if bal == 0 and args.network != "localhost":
+            t.add_row("", "[yellow]fund this address from a faucet before deploying[/yellow]")
+    else:
+        t.add_row("[dim]signer[/dim]", "[yellow]none — set PRIVATE_KEY in .env[/yellow]")
+
     if client.explorer_address_url():
         t.add_row("[dim]explorer[/dim]", client.explorer_address_url())
 

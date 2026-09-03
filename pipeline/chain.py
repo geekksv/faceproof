@@ -118,6 +118,7 @@ class ChainClient:
         rpc_url: str | None = None,
         address: str | None = None,
         private_key: str | None = None,
+        require_deployment: bool = True,
     ):
         self.network = network
         self.rpc_url = (
@@ -137,14 +138,35 @@ class ChainClient:
             )
             raise ChainError(f"Cannot reach RPC at {self.rpc_url}{hint}")
 
-        self.address = Web3.to_checksum_address(
-            address or load_deployment(network)["address"]
-        )
-        self.contract = self.w3.eth.contract(address=self.address, abi=_abi())
+        # `info` needs to work before anything is deployed -- that is exactly
+        # when you are checking whether a faucet has funded you yet.
+        if address is None and not require_deployment:
+            try:
+                address = load_deployment(network)["address"]
+            except ChainError:
+                address = None
 
-        key = private_key or os.environ.get("PRIVATE_KEY")
-        if not key and network == "localhost":
+        if address is None and require_deployment:
+            address = load_deployment(network)["address"]
+
+        self.address = Web3.to_checksum_address(address) if address else None
+        self.contract = (
+            self.w3.eth.contract(address=self.address, abi=_abi())
+            if self.address
+            else None
+        )
+
+        # On the local chain, always sign with Hardhat's pre-funded dev account
+        # unless a key is passed explicitly. A PRIVATE_KEY in .env is there for
+        # public testnets; letting it take over locally would silently break the
+        # offline demo with an unfunded wallet the moment someone adds one.
+        if private_key:
+            key = private_key
+        elif network == "localhost":
             key = HARDHAT_DEV_KEY
+        else:
+            key = os.environ.get("PRIVATE_KEY")
+
         if key:
             self.account = self.w3.eth.account.from_key(
                 key if key.startswith("0x") else "0x" + key
@@ -254,4 +276,10 @@ class ChainClient:
 
     def explorer_address_url(self) -> str | None:
         base = EXPLORERS.get(self.network)
-        return f"{base}/address/{self.address}" if base else None
+        return f"{base}/address/{self.address}" if base and self.address else None
+
+    def signer_balance_eth(self):
+        """Signer balance in ether, or None when there is no signer."""
+        if self.account is None:
+            return None
+        return self.w3.from_wei(self.w3.eth.get_balance(self.account.address), "ether")
