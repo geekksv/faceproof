@@ -364,3 +364,56 @@ def test_report_escapes_untrusted_page_titles(tmp_path, kohli):
     text = out.read_text(encoding="utf-8")
     assert "<script>alert(1)</script>" not in text
     assert "&lt;script&gt;" in text or "&quot;" in text
+
+
+# ------------------------------------------------- crawler-UA fallback
+
+
+def test_og_image_falls_back_to_crawler_ua(monkeypatch):
+    """Instagram and friends serve a login wall to a browser UA but still
+    serve og:image to link-preview crawlers. Without the retry the pipeline
+    reports 'no usable face' when the truth is 'never got to look'."""
+    from pipeline import verify as V
+
+    seen = []
+
+    class Resp:
+        def __init__(self, text):
+            self.ok = True
+            self.text = text
+            self.headers = {"content-type": "text/html"}
+
+    def fake_get(url, headers=None, timeout=None, **kw):
+        ua = (headers or {}).get("User-Agent", "")
+        seen.append(ua)
+        if "facebookexternalhit" in ua:
+            return Resp('<meta property="og:image" content="https://cdn/x.jpg?a=1&amp;b=2">')
+        return Resp("<html>login wall, no metadata</html>")
+
+    monkeypatch.setattr(V.requests, "get", fake_get)
+    got = V._og_image("https://www.instagram.com/someone/")
+
+    assert got == "https://cdn/x.jpg?a=1&b=2", "must unescape &amp; in CDN URLs"
+    assert len(seen) == 2, "should try the browser UA first, then the crawler UA"
+    assert "facebookexternalhit" in seen[1]
+
+
+def test_og_image_does_not_retry_when_the_first_try_works(monkeypatch):
+    """The crawler UA is a fallback, not the default."""
+    from pipeline import verify as V
+
+    calls = []
+
+    class Resp:
+        ok = True
+        text = '<meta property="og:image" content="https://cdn/y.jpg">'
+        headers = {"content-type": "text/html"}
+
+    def fake_get(url, headers=None, **kw):
+        calls.append((headers or {}).get("User-Agent", ""))
+        return Resp()
+
+    monkeypatch.setattr(V.requests, "get", fake_get)
+    assert V._og_image("https://example.com/p") == "https://cdn/y.jpg"
+    assert len(calls) == 1
+    assert "facebookexternalhit" not in calls[0]

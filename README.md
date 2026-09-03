@@ -397,10 +397,13 @@ This is face-search tooling, and it is worth being blunt about what that means.
 - **The free engines find celebrities, not strangers.** See the section above --
   this is the single biggest limitation, and it is inherent to reverse *image*
   search rather than a bug. `--backend facecheck` removes it, for a fee.
-- **Instagram, Facebook and X block scraping.** They appear in results, but their
-  images usually cannot be downloaded, so they rarely survive verification.
-  YouTube, Pinterest and Reddit serve images openly and verify reliably. Engines
-  that return thumbnails inline (FaceCheck) sidestep this entirely.
+- **Instagram, Facebook and Threads serve a login wall to scripts.** They return
+  no metadata at all to a normal browser user-agent. The pipeline retries as a
+  link-preview crawler, which is how any chat app renders a thumbnail for a
+  pasted link, and that does get their public preview image — so these platforms
+  are now actually checked rather than silently skipped. What comes back is the
+  profile picture, not the post's own media, so it verifies a *profile* rather
+  than a specific post. IMDb still returns nothing usable.
 - **Yandex can serve a CAPTCHA** from datacenter or heavily-used IPs. Re-run
   without `--headless` and solve it in the visible window, or use `--backend bing`.
 - **One face per scan.** The largest detected face is used; group photos need the

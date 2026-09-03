@@ -24,6 +24,17 @@ UA = (
     "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
 )
 
+# Instagram, Facebook and Threads serve a login wall with no metadata to an
+# ordinary browser UA, but still serve og:image to link-preview crawlers --
+# that is how a pasted link renders a thumbnail anywhere on the web. Asking
+# as a crawler gets the same public preview image any chat app would show,
+# and nothing more. Without this the pipeline silently skipped every hit on
+# the platforms that matter most, reporting "no usable face" when the truth
+# was "never got to look".
+CRAWLER_UA = (
+    "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"
+)
+
 # ArcFace (w600k_r50) cosine similarity. Same-person pairs typically land
 # above ~0.5; unrelated faces sit near 0. 0.45 keeps recall without letting
 # look-alikes through, and the actual score is always recorded in evidence.
@@ -62,17 +73,15 @@ class VerifiedMatch:
         }
 
 
-def _fetch(url: str, referer: str | None = None) -> bytes | None:
-    """Download bytes, refusing anything that is not a reasonable image."""
-    headers = {"User-Agent": UA, "Accept": "image/*,*/*;q=0.8"}
+def _fetch_once(url: str, ua: str, referer: str | None = None) -> bytes | None:
+    headers = {"User-Agent": ua, "Accept": "image/*,*/*;q=0.8"}
     if referer:
         headers["Referer"] = referer
     try:
         r = requests.get(url, headers=headers, timeout=30, stream=True)
         if not r.ok:
             return None
-        ctype = r.headers.get("content-type", "")
-        if not ctype.startswith("image"):
+        if not r.headers.get("content-type", "").startswith("image"):
             return None
         data = r.raw.read(MAX_BYTES + 1, decode_content=True)
         return data if 0 < len(data) <= MAX_BYTES else None
@@ -80,12 +89,20 @@ def _fetch(url: str, referer: str | None = None) -> bytes | None:
         return None
 
 
-def _og_image(page_url: str) -> str | None:
-    """Pull the og:image off a post page when the engine gave us no image."""
+def _fetch(url: str, referer: str | None = None) -> bytes | None:
+    """Download bytes, refusing anything that is not a reasonable image.
+
+    Retries as a link-preview crawler, because several CDNs serve images to
+    those and not to a plain browser UA.
+    """
+    return _fetch_once(url, UA, referer) or _fetch_once(url, CRAWLER_UA, referer)
+
+
+def _og_image_once(page_url: str, ua: str) -> str | None:
     try:
         r = requests.get(
             page_url,
-            headers={"User-Agent": UA, "Accept": "text/html,*/*"},
+            headers={"User-Agent": ua, "Accept": "text/html,*/*"},
             timeout=25,
         )
         if not r.ok or "html" not in r.headers.get("content-type", ""):
@@ -101,9 +118,19 @@ def _og_image(page_url: str) -> str | None:
             r.text,
             re.I,
         )
-        return m.group(1) if m else None
+        # Meta tags are HTML-escaped; CDN URLs are full of &amp; separators.
+        return m.group(1).replace("&amp;", "&") if m else None
     except Exception:
         return None
+
+
+def _og_image(page_url: str) -> str | None:
+    """Pull the og:image off a post page when the engine gave us no image.
+
+    Falls back to a link-preview crawler UA, which is the only way the major
+    social platforms will hand over their public preview image.
+    """
+    return _og_image_once(page_url, UA) or _og_image_once(page_url, CRAWLER_UA)
 
 
 def verify_candidate(
