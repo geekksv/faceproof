@@ -94,11 +94,24 @@ decides for itself. A hardcoded URL would have to survive our own face matcher.
 | Kohli ↔ Pichai | +0.069 |
 | Dhoni ↔ Pichai | +0.022 |
 | **acceptance threshold** | **0.45** |
-| Kohli ↔ verified YouTube posts | +0.93 to +0.99 |
+| Kohli ↔ verified YouTube posts (same photo reposted) | +0.93 to +0.99 |
+| KL Rahul ↔ his official X profile (**different** photo) | +0.527 |
 
-Unrelated faces land near zero; true matches land near one. Nothing sits near the
-line. `tests/test_pipeline.py::test_different_people_score_far_below_threshold`
+Unrelated faces land near zero; true matches land well above the line.
+`tests/test_pipeline.py::test_different_people_score_far_below_threshold`
 enforces this — if it ever failed, every "verified match" would be meaningless.
+
+The two match rows measure different things, and the difference is worth
+understanding. The ~0.99 scores are the *same photograph* reposted elsewhere, so
+the pipeline is really confirming an image duplicate. The **0.527** score is KL
+Rahul's input photo matched against a completely different picture on his X
+profile — a black-and-white portrait, different pose, hands partly covering the
+face. That is real face recognition rather than image matching, and it is why
+the threshold sits at 0.45 rather than somewhere comfortable like 0.8.
+
+Two runs also show the verifier rejecting things it should. Searching a KL Rahul
+photo, Yandex returned Virat Kohli fan posts and Bing labelled the face "Rohit
+Sharma" — both wrong. Every one of those scored 0.09–0.24 and was discarded.
 
 **Failures are visible.** The run prints every candidate it checked, including the
 ones that failed and the ones with no usable face. There is no silent filtering.
@@ -346,6 +359,10 @@ This is face-search tooling, and it is worth being blunt about what that means.
   without `--headless` and solve it in the visible window, or use `--backend bing`.
 - **One face per scan.** The largest detected face is used; group photos need the
   subject to be the most prominent person.
+- **Search engines confidently return the wrong person.** On a KL Rahul photo,
+  Yandex surfaced Virat Kohli posts and Bing's entity label said "Rohit Sharma".
+  The verification stage is what catches this; without it the pipeline would
+  cheerfully anchor false evidence.
 - **Similarity is not identity.** A high score means the same face, not a verified
   legal identity. Identical twins and some heavy edits can fool any face embedder.
 - **The evidence bundle references remote URLs.** If a post is deleted, the on-chain
@@ -362,7 +379,8 @@ This is face-search tooling, and it is worth being blunt about what that means.
 
 ```
 pipeline/
-  face.py            SCRFD detection + ArcFace embedding
+  face.py            SCRFD detection + ArcFace embedding, with a padded
+                     retry for faces that fill the whole frame
   imagehost.py       publish a crop so search engines can fetch it
   search/
     base.py          Candidate type, social-domain classification

@@ -1,0 +1,9 @@
+{
+  "network": "localhost",
+  "contract_address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+  "tx_hash": "0x2c50fadcfb293f82f42712c56886e76c14796735f5612296223e072b7603808c",
+  "block_number": 6,
+  "gas_used": 168473,
+  "evidence_hash": "0x99f8e94e78a3118b662f5126b36d5c193670ddcb7a8f14bc13d1ac5346de60c1",
+  "explorer_url": null
+}

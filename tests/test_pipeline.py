@@ -232,3 +232,64 @@ def test_evidence_records_every_query_put_to_the_engine():
     )
     kinds = [q["kind"] for q in b["search"]["queries"]]
     assert kinds == ["face_crop", "full_image"], "queries must be canonically ordered"
+
+
+# ------------------------------------------------- extreme close-up faces
+
+RAHUL = SAMPLES / "kl_rahul.jpg"
+
+
+def _fill_frame_crop(path, tmp_path):
+    """Crop an image down to just the face, so it fills the whole frame --
+    the shape of a typical social media profile picture."""
+    import cv2
+
+    f = FaceEncoder.primary_face(path)
+    img = FaceEncoder.load_image(path)
+    x1, y1, x2, y2 = f.bbox
+    out = tmp_path / "closeup.jpg"
+    cv2.imwrite(str(out), img[max(0, y1):y2, max(0, x1):x2])
+    return out
+
+
+@pytest.mark.parametrize("src", [KOHLI, RAHUL])
+def test_detects_a_face_that_fills_the_entire_frame(tmp_path, src):
+    """Regression: SCRFD's anchors top out below a face this large and the
+    first detection pass returns nothing. Profile pictures are nearly always
+    this shape, so failing here silently loses the social matches that matter
+    most. `detect` retries on a padded copy.
+    """
+    closeup = _fill_frame_crop(src, tmp_path)
+    faces = FaceEncoder.detect(closeup)
+    assert faces, "a face filling the frame must still be detected"
+
+
+def test_padded_retry_keeps_bboxes_in_image_coordinates(tmp_path):
+    """The retry pads the image, so boxes must be shifted back or every
+    downstream crop would be offset."""
+    closeup = _fill_frame_crop(KOHLI, tmp_path)
+    img = FaceEncoder.load_image(closeup)
+    h, w = img.shape[:2]
+    face = FaceEncoder.primary_face(closeup)
+    x1, y1, x2, y2 = face.bbox
+    assert x2 > x1 and y2 > y1
+    # Generous bounds: the box may extend slightly past the crop edge, but it
+    # must not be sitting out in padding space.
+    assert -w < x1 < w and -h < y1 < h
+    assert 0 < x2 <= 2 * w and 0 < y2 <= 2 * h
+
+
+def test_closeup_still_matches_the_same_person(tmp_path):
+    """Padding must not distort the embedding."""
+    face = FaceEncoder.primary_face(KOHLI)
+    closeup = _fill_frame_crop(KOHLI, tmp_path)
+    reembedded = FaceEncoder.primary_face(closeup)
+    assert cosine_similarity(face.embedding, reembedded.embedding) > 0.85
+
+
+def test_closeup_of_one_person_still_rejects_another(tmp_path):
+    """The padded retry must not weaken discrimination."""
+    kohli_face = FaceEncoder.primary_face(KOHLI)
+    dhoni_closeup = _fill_frame_crop(DHONI, tmp_path)
+    other = FaceEncoder.primary_face(dhoni_closeup)
+    assert cosine_similarity(kohli_face.embedding, other.embedding) < 0.30

@@ -99,13 +99,12 @@ class FaceEncoder:
     # -- core --------------------------------------------------------------
 
     @classmethod
-    def detect(cls, source: str | Path | bytes) -> list[Face]:
-        """Detect every face in an image, largest first."""
-        img = cls.load_image(source)
+    def _detect_array(cls, img: np.ndarray, offset: int = 0) -> list[Face]:
+        """Run the detector over one array, shifting boxes back by `offset`."""
         faces = []
         for f in cls._get_app().get(img):
             emb = np.asarray(f.normed_embedding, dtype=np.float32)
-            x1, y1, x2, y2 = (int(v) for v in f.bbox)
+            x1, y1, x2, y2 = (int(v) - offset for v in f.bbox)
             faces.append(
                 Face(
                     bbox=(x1, y1, x2, y2),
@@ -116,6 +115,30 @@ class FaceEncoder:
             )
         faces.sort(key=lambda f: f.area, reverse=True)
         return faces
+
+    @classmethod
+    def detect(cls, source: str | Path | bytes) -> list[Face]:
+        """Detect every face in an image, largest first.
+
+        Falls back to a padded retry when the first pass finds nothing. SCRFD
+        misses faces that fill the entire frame -- its anchor scales top out
+        below a face that large -- and adding a border makes the face
+        proportionally smaller without altering a single pixel of it.
+
+        This is not an edge case: social media profile pictures are almost
+        always extreme close-up crops, so without the retry the pipeline
+        silently fails on exactly the images it most needs to check.
+        """
+        img = cls.load_image(source)
+        faces = cls._detect_array(img)
+        if faces:
+            return faces
+
+        pad = max(img.shape[0], img.shape[1]) // 2
+        padded = cv2.copyMakeBorder(
+            img, pad, pad, pad, pad, cv2.BORDER_REPLICATE
+        )
+        return cls._detect_array(padded, offset=pad)
 
     @classmethod
     def primary_face(cls, source: str | Path | bytes) -> Face:
