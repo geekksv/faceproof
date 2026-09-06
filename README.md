@@ -22,11 +22,13 @@ Built for **HH Goa 2026 Shortlisting Task 3**.
 
 ## Results from a real run
 
-One command, one photo, no hardcoded anything:
+One command, one photo, no hardcoded anything. These are the numbers from the run
+that is anchored on Sepolia below — **a live search returns different results every
+time**, which is what makes it a search rather than a lookup table:
 
 | | |
 |---|---|
-| Pages returned by the live search | **161** (21 on social platforms) |
+| Pages returned by the live search | **158** (22 on social platforms) |
 | Independently verified as the same person | **17** |
 | Platforms matched | Instagram, Facebook, IMDb, YouTube, Pinterest |
 | Best match | **0.9838** cosine similarity |
@@ -136,25 +138,31 @@ Add `--open-report` to have it open in your browser automatically.
 ```
 Step 2/5 · Web & social media search
   OK  published 2 query image(s) so the engine can fetch them
-      face_crop     https://files.catbox.moe/m24rp0.jpg
-      full_image    https://files.catbox.moe/4qihcr.jpg
-      face_crop     returned 35 pages
-      full_image    returned 58 pages
-  OK  65 unique pages found, 19 on social platforms
+      face_crop     returned 87 pages
+      full_image    returned 71 pages
+  OK  158 unique pages found, 22 on social platforms
+      engine identified the face as: Urmila Matondkar
 
 Step 3/5 · Independent face verification
       re-checking each hit with our own embedder — the engine's ranking is not trusted
-      PASS sim=+0.8199  Pinterest   https://www.pinterest.com/pin/1101271533748...
-      PASS sim=+0.9774  YouTube     https://www.youtube.com/@varioustips8692
-      PASS sim=+0.9865  YouTube     https://www.youtube.com/shorts/B38jsTSNXYI
-        ·    no usable face   YouTube     https://www.youtube.com/shorts/reR05rPo2Ho
-      PASS sim=+0.9947  YouTube     https://www.youtube.com/shorts/t7K38auPbPI
-  OK  11 post(s) independently verified as the same person
+      fail sim=+0.3727  Instagram   https://www.instagram.com/urmilamatondkarofficial/
+      PASS sim=+0.9838  Pinterest   https://in.pinterest.com/pin/800163058769637425/
+      PASS sim=+0.5002  Instagram   https://www.instagram.com/urmila.matondkar_/
+      PASS sim=+0.6806  Facebook    https://www.facebook.com/realurmilamatondkar/
+      PASS sim=+0.6640  IMDb        https://www.imdb.com/name/nm0007107/
+      fail sim=+0.0504  Pinterest   https://www.pinterest.com/ideas/kareena-kapoor-...
+      fail sim=+0.0504  Pinterest   https://www.pinterest.com/pin/deepika-padukone-...
+  OK  17 post(s) independently verified as the same person
 
 Step 5/5 · Blockchain anchor
-  OK  anchored in block 3 (gas 213,454)
-      tx 0x0674e8d41aeddb0a01263ab8d50e371efe7902b745b08e45f196a39bb419f2ae
+  OK  anchored in block 11644880 (gas 230,650)
+      https://sepolia.etherscan.io/tx/0xd2c39c0f7586b05b4cb61bff858b23b9fd36f0f013c394a0fd25251ef31ad550
 ```
+
+Note the first line of the verification step: the account whose URL literally says
+`urmilamatondkarofficial` is **rejected**, because its profile picture does not clear
+the threshold. A different account passes at 0.5002. The pipeline weighs faces, not
+labels.
 
 ---
 
