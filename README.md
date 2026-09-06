@@ -4,15 +4,58 @@ A pipeline that takes a face scan, finds that person on live social media throug
 real reverse-image search, verifies the match with its own face-recognition model,
 and anchors the finding on a blockchain as a tamper-evident record.
 
-```
-  face scan  ──▶  web / social search  ──▶  independent  ──▶  evidence  ──▶  on-chain
-  (InsightFace)   (Yandex, Bing,            verification      bundle         anchor
-   detect +        FaceCheck.ID)             our own          canonical      keccak256
-   512-d ArcFace   real live query,          ArcFace re-check  JSON          in a contract
-                   no hardcoded results
+```mermaid
+flowchart TD
+    A["FACE SCAN<br/>SCRFD detect + 512-d ArcFace<br/>local, CPU"]
+    B["WEB / SOCIAL SEARCH<br/>Yandex CBIR + Bing<br/>live query, crop and full photo"]
+    C["INDEPENDENT VERIFICATION<br/>re-embed every candidate ourselves<br/>engine's ranking discarded"]
+    D["EVIDENCE BUNDLE<br/>canonical JSON, sorted keys<br/>keccak256 digest"]
+    E["ON-CHAIN ANCHOR<br/>FaceProofRegistry.sol<br/>hash only, write-once"]
+    F["RE-VERIFY ANY TIME<br/>re-hash the file, ask the chain<br/>one edited byte = rejected"]
+    A --> B --> C --> D --> E --> F
+    C -. "below 0.45 threshold" .-> X["DISCARDED"]
 ```
 
 Built for **HH Goa 2026 Shortlisting Task 3**.
+
+---
+
+## Results from a real run
+
+One command, one photo, no hardcoded anything:
+
+| | |
+|---|---|
+| Pages returned by the live search | **161** (21 on social platforms) |
+| Independently verified as the same person | **16** |
+| Platforms matched | Instagram, Facebook, IMDb, YouTube, Pinterest |
+| Best match | **0.9838** cosine similarity |
+| Anchored | `keccak256` → Solidity registry, one transaction |
+| Cost | **$0** — no paid APIs |
+
+The numbers that make a match mean something:
+
+| Comparison | Cosine similarity |
+|---|---|
+| Two unrelated faces | **+0.02 to +0.07** |
+| Acceptance threshold | **0.45** |
+| Same person, different photograph | **+0.53** |
+| Same photograph reposted elsewhere | **+0.93 to +0.99** |
+
+![Verified match](docs/report-match.png)
+
+Every scan writes a self-contained HTML report showing the scanned face beside the
+matched image — and **every candidate it rejected**, with scores:
+
+![Candidates checked](docs/report-candidates.png)
+
+Three rows in that table are worth reading closely. Urmila Matondkar's own
+**official** Instagram account is *rejected* at 0.3727 because its profile picture
+does not clear the threshold, while a different account passes at 0.5002 — the
+pipeline does not care what a URL claims. And the Kareena Kapoor and Deepika
+Padukone pages the search engine returned are rejected at ~0.05.
+
+That is the whole design: **the search engine proposes, our own model decides.**
 
 ---
 
@@ -20,8 +63,8 @@ Built for **HH Goa 2026 Shortlisting Task 3**.
 
 Run one command:
 
-```bash
-python -m pipeline.cli scan samples/virat_kohli.jpg --network localhost
+```powershell
+.\demo.ps1
 ```
 
 and the pipeline:
