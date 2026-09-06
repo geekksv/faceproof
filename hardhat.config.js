@@ -32,4 +32,13 @@ module.exports = {
     },
   },
   paths: { sources: "./contracts", tests: "./test", artifacts: "./artifacts" },
+
+  // Publishing the source on Etherscan is what makes the anchor independently
+  // checkable: anyone can open the contract's "Read Contract" tab, paste an
+  // evidence hash into getProof, and see the record without running this code
+  // or trusting this repo. Get a free key at etherscan.io/myapikey.
+  etherscan: {
+    apiKey: process.env.ETHERSCAN_API_KEY || "",
+  },
+  sourcify: { enabled: false },
 };

@@ -27,11 +27,33 @@ One command, one photo, no hardcoded anything:
 | | |
 |---|---|
 | Pages returned by the live search | **161** (21 on social platforms) |
-| Independently verified as the same person | **16** |
+| Independently verified as the same person | **17** |
 | Platforms matched | Instagram, Facebook, IMDb, YouTube, Pinterest |
 | Best match | **0.9838** cosine similarity |
 | Anchored | `keccak256` → Solidity registry, one transaction |
-| Cost | **$0** — no paid APIs |
+| Cost | **$0** — no paid APIs, testnet coins are free |
+
+### Check it yourself, without running anything
+
+The whole point of anchoring is that you do not have to trust this repo, this
+README, or the demo video. A live record sits on the **Ethereum Sepolia** public
+testnet right now:
+
+| | |
+|---|---|
+| Contract | [`0xfE4CdD8dCA7194055EAbEE1bF28Be13818666920`](https://sepolia.etherscan.io/address/0xfE4CdD8dCA7194055EAbEE1bF28Be13818666920) |
+| Anchor transaction | [`0xd2c39c0f…1ad550`](https://sepolia.etherscan.io/tx/0xd2c39c0f7586b05b4cb61bff858b23b9fd36f0f013c394a0fd25251ef31ad550) |
+| Evidence digest | `0xdff6536b5bba5160214fc934ede15fe057749e2a2dc555ad1d6859b9f0b3daba` |
+| Block | 11644880 |
+
+To verify independently: open the contract on Etherscan, go to **Read Contract →
+`getProof`**, paste the evidence digest above, and the record comes back — the
+matched post URL, the platform, the similarity in basis points, and the block
+timestamp proving when it existed.
+
+Then paste the digest into `isAnchored` with any character changed. It returns
+`false`. That is the tamper-evidence property, checkable by a stranger in a
+browser.
 
 The numbers that make a match mean something:
 
@@ -204,7 +226,8 @@ Both, selected with `--network`:
   works offline. The default.
 - **Public testnets** — `sepolia`, `amoy` (Polygon), `baseSepolia`. Real public
   chains with a block explorer anyone can independently check. Testnet coins are
-  free from a faucet; **no real money is involved**.
+  free from a faucet; **no real money is involved**. This project is deployed and
+  anchored live on Sepolia — see [Check it yourself](#check-it-yourself-without-running-anything).
 
 The contract, the pipeline and the verification path are identical on both.
 
