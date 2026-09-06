@@ -41,15 +41,17 @@ testnet right now:
 
 | | |
 |---|---|
-| Contract | [`0xfE4CdD8dCA7194055EAbEE1bF28Be13818666920`](https://sepolia.etherscan.io/address/0xfE4CdD8dCA7194055EAbEE1bF28Be13818666920) |
+| Contract | [`0xfE4CdD8dCA7194055EAbEE1bF28Be13818666920`](https://sepolia.etherscan.io/address/0xfE4CdD8dCA7194055EAbEE1bF28Be13818666920) — [source verified](https://sepolia.etherscan.io/address/0xfE4CdD8dCA7194055EAbEE1bF28Be13818666920#code) |
 | Anchor transaction | [`0xd2c39c0f…1ad550`](https://sepolia.etherscan.io/tx/0xd2c39c0f7586b05b4cb61bff858b23b9fd36f0f013c394a0fd25251ef31ad550) |
 | Evidence digest | `0xdff6536b5bba5160214fc934ede15fe057749e2a2dc555ad1d6859b9f0b3daba` |
 | Block | 11644880 |
 
-To verify independently: open the contract on Etherscan, go to **Read Contract →
-`getProof`**, paste the evidence digest above, and the record comes back — the
-matched post URL, the platform, the similarity in basis points, and the block
-timestamp proving when it existed.
+The Solidity source is **published on Etherscan**, so the contract's
+[**Read Contract**](https://sepolia.etherscan.io/address/0xfE4CdD8dCA7194055EAbEE1bF28Be13818666920#readContract)
+tab is live. To verify independently: open it, call `getProof` with the evidence
+digest above, and the record comes back — the matched post URL, the platform, the
+similarity in basis points, and the block timestamp proving when it existed. No
+code to run, no repo to clone, no need to trust anything here.
 
 Then paste the digest into `isAnchored` with any character changed. It returns
 `false`. That is the tamper-evidence property, checkable by a stranger in a
